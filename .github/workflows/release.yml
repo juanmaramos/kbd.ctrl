@@ -131,8 +131,25 @@ jobs:
             -D warnings
           cargo test --manifest-path src-tauri/Cargo.toml --locked
 
-      - name: Build, sign, notarize, and staple universal DMG
+      - name: Build, sign, and notarize universal app
         run: npm run tauri -- build --ci --bundles app,dmg --target universal-apple-darwin
+
+      - name: Notarize and staple universal DMG
+        run: |
+          bundle_root="src-tauri/target/universal-apple-darwin/release/bundle"
+          dmg_path="$(find "${bundle_root}/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
+
+          if [[ -z "${dmg_path}" ]]; then
+            echo "::error::Expected DMG was not produced"
+            exit 1
+          fi
+
+          xcrun notarytool submit "${dmg_path}" \
+            --key "${APPLE_API_KEY_PATH}" \
+            --key-id "${APPLE_API_KEY}" \
+            --issuer "${APPLE_API_ISSUER}" \
+            --wait
+          xcrun stapler staple "${dmg_path}"
 
       - name: Verify release artifact
         id: artifact
