@@ -99,6 +99,7 @@ cd apps/desktop
 npm run typecheck
 npm run lint
 npm run format:check
+npm test
 npm run build
 cd src-tauri
 cargo fmt --all -- --check

@@ -42,7 +42,6 @@ import {
   backupDeviceConfiguration,
   applyRgbProfile,
   configureTransportMapping,
-  defaultRoleColors,
   inspectTransportMapping,
   listenToInputEvents,
   listenToInputMonitorStatus,
@@ -63,6 +62,11 @@ import {
   type InputMonitorStatus,
   type MappingSummary,
 } from "@/lib/device"
+import {
+  configureHardware,
+  initializeExistingHardware,
+  recordTestedControl,
+} from "@/lib/hardware-setup"
 
 type StatusRowProps = {
   label: string
@@ -203,24 +207,17 @@ export function App() {
   const configureForOnboarding = useCallback(async () => {
     setIsBackingUp(true)
     setIsMapping(true)
-    setConfigurationPhase("backup")
     setBackupError(null)
     setMappingError(null)
     try {
-      const nextBackup = await backupDeviceConfiguration()
-      setBackup(nextBackup)
-      setConfigurationPhase("mapping")
-      const nextMapping = await configureTransportMapping(nextBackup.path)
-      setMapping(nextMapping)
-      setConfigurationPhase("lighting")
-      try {
-        await applyRgbProfile("reactive", defaultRoleColors)
-      } catch (error) {
-        console.warn(
-          "The controller mapping verified, but Live pulse lighting was not applied.",
-          error
-        )
-      }
+      await configureHardware({
+        backup: backupDeviceConfiguration,
+        configureMapping: configureTransportMapping,
+        applyLighting: applyRgbProfile,
+        onBackup: setBackup,
+        onMapping: setMapping,
+        onPhase: setConfigurationPhase,
+      })
     } catch (error) {
       const message =
         error instanceof Error
@@ -325,6 +322,7 @@ export function App() {
               completed: false,
               dismissed: false,
               hardwareConfigured: false,
+              lightingConfigured: false,
               codexConfigured: false,
             },
           })
@@ -344,7 +342,8 @@ export function App() {
     }
     if (
       !preferences ||
-      preferences.onboarding.hardwareConfigured ||
+      (preferences.onboarding.hardwareConfigured &&
+        preferences.onboarding.lightingConfigured) ||
       isBackingUp ||
       isMapping
     ) {
@@ -358,20 +357,25 @@ export function App() {
     inspectedMappingDevice.current = deviceKey
     let cancelled = false
 
-    void inspectTransportMapping()
-      .then((mappingStatus) => {
-        if (!cancelled && mappingStatus.configured) {
+    void initializeExistingHardware(inspectTransportMapping, applyRgbProfile)
+      .then((initialized) => {
+        if (!cancelled && initialized) {
           return saveOnboardingState({
             ...preferences.onboarding,
             hardwareConfigured: true,
+            lightingConfigured: true,
           })
         }
       })
       .catch((error: unknown) => {
-        console.warn(
-          "The current keypad mapping could not be inspected.",
-          error
-        )
+        if (!cancelled) {
+          setMappingError(
+            error instanceof Error
+              ? error.message
+              : "The mapped controller lighting could not be initialized."
+          )
+        }
+        console.warn("The mapped controller could not be initialized.", error)
       })
 
     return () => {
@@ -418,18 +422,7 @@ export function App() {
         listenToInputEvents((event) => {
           window.clearTimeout(releaseTimer)
           setLatestInputEvent(event)
-          if (
-            ["F13", "F16", "F17", "F18", "F19", "F20"].includes(
-              event.control
-            ) &&
-            (event.state === "down" || event.state === "step")
-          ) {
-            setTestedControls((current) => {
-              const next = new Set(current)
-              next.add(event.control)
-              return next
-            })
-          }
+          setTestedControls((current) => recordTestedControl(current, event))
 
           if (event.state !== "down") {
             releaseTimer = window.setTimeout(() => {
@@ -823,6 +816,9 @@ export function App() {
 
                 <TabsContent value="settings" className="pt-6">
                   <ControllerSettings
+                    lightingConfigured={
+                      preferences.onboarding.lightingConfigured
+                    }
                     onRunSetup={() => void runOnboarding()}
                     usbServiceAvailable={status.configurationInterfaceVisible}
                   />

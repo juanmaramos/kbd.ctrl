@@ -54,6 +54,9 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
+      - name: Test frontend logic
+        run: npm test
+
       - name: Build frontend
         run: npm run build
 

@@ -592,9 +592,14 @@ fn monitor_event_tap(
                 }
             }
 
-            if is_bare_key(event, MACOS_F13_KEY_CODE) {
+            if let Some(destination) = controller_global_destination(
+                event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE),
+                event.get_flags(),
+            ) {
                 let translated = event.clone();
-                translated.set_flags(event.get_flags() | CGEventFlags::CGEventFlagControl);
+                translated
+                    .set_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE, destination.0);
+                translated.set_flags(destination.1);
                 CallbackResult::Replace(translated)
             } else {
                 route_codex_control(event_type, event, &callback_routed_keys)
@@ -645,6 +650,23 @@ fn monitor_event_tap(
         );
     } else if generation.load(Ordering::SeqCst) == token {
         emit_status(&app, "stopped", 0, "Input monitoring stopped");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn controller_global_destination(
+    source_key_code: i64,
+    flags: CGEventFlags,
+) -> Option<(i64, CGEventFlags)> {
+    let modifier_flags = CGEventFlags::CGEventFlagControl
+        | CGEventFlags::CGEventFlagShift
+        | CGEventFlags::CGEventFlagAlternate
+        | CGEventFlags::CGEventFlagCommand;
+
+    if source_key_code == MACOS_F13_KEY_CODE && !flags.intersects(modifier_flags) {
+        Some((MACOS_F13_KEY_CODE, flags | CGEventFlags::CGEventFlagControl))
+    } else {
+        None
     }
 }
 
@@ -863,7 +885,9 @@ fn decode_macos_event(
 
             let key_code = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
             let label = controller_macos_key_label(key_code)?;
-            pressed_at.lock().ok()?.insert(key_code, Instant::now());
+            if !begin_key_press(pressed_at, key_code) {
+                return None;
+            }
             Some(macos_key_event(
                 sequence, event, key_code, label, "down", None,
             ))
@@ -871,22 +895,42 @@ fn decode_macos_event(
         CGEventType::KeyUp => {
             let key_code = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
             let label = controller_macos_key_label(key_code)?;
-            let duration_ms = pressed_at
-                .lock()
-                .ok()?
-                .remove(&key_code)
-                .map(|started| started.elapsed().as_millis() as u64);
+            let duration_ms = finish_key_press(pressed_at, key_code)?;
             Some(macos_key_event(
                 sequence,
                 event,
                 key_code,
                 label,
                 "up",
-                duration_ms,
+                Some(duration_ms),
             ))
         }
         _ => None,
     }
+}
+
+#[cfg(target_os = "macos")]
+fn begin_key_press(pressed_at: &std::sync::Mutex<HashMap<i64, Instant>>, key_code: i64) -> bool {
+    let Ok(mut pressed_at) = pressed_at.lock() else {
+        return false;
+    };
+    if pressed_at.contains_key(&key_code) {
+        return false;
+    }
+    pressed_at.insert(key_code, Instant::now());
+    true
+}
+
+#[cfg(target_os = "macos")]
+fn finish_key_press(
+    pressed_at: &std::sync::Mutex<HashMap<i64, Instant>>,
+    key_code: i64,
+) -> Option<u64> {
+    pressed_at
+        .lock()
+        .ok()?
+        .remove(&key_code)
+        .map(|started| started.elapsed().as_millis() as u64)
 }
 
 #[cfg(target_os = "macos")]
@@ -1056,12 +1100,14 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::{
-        claude_destination, codex_destination, controller_macos_key_label, CGEventFlags,
-        MACOS_ESCAPE_KEY_CODE, MACOS_E_KEY_CODE, MACOS_F16_KEY_CODE, MACOS_F17_KEY_CODE,
+        begin_key_press, claude_destination, codex_destination, controller_global_destination,
+        controller_macos_key_label, finish_key_press, CGEventFlags, MACOS_ESCAPE_KEY_CODE,
+        MACOS_E_KEY_CODE, MACOS_F13_KEY_CODE, MACOS_F16_KEY_CODE, MACOS_F17_KEY_CODE,
         MACOS_F18_KEY_CODE, MACOS_F19_KEY_CODE, MACOS_F20_KEY_CODE, MACOS_I_KEY_CODE,
         MACOS_M_KEY_CODE, MACOS_RETURN_KEY_CODE,
     };
     use crate::claude_accessibility::ClaudeSurface;
+    use std::{collections::HashMap, sync::Mutex};
 
     #[test]
     fn global_monitor_accepts_only_controller_transport_keys() {
@@ -1104,6 +1150,32 @@ mod tests {
             ))
         );
         assert_eq!(codex_destination(0x69), None);
+    }
+
+    #[test]
+    fn global_profile_adds_control_to_bare_f13_only() {
+        assert_eq!(
+            controller_global_destination(MACOS_F13_KEY_CODE, CGEventFlags::empty()),
+            Some((MACOS_F13_KEY_CODE, CGEventFlags::CGEventFlagControl))
+        );
+        assert_eq!(
+            controller_global_destination(MACOS_F13_KEY_CODE, CGEventFlags::CGEventFlagShift),
+            None
+        );
+        assert_eq!(
+            controller_global_destination(MACOS_F16_KEY_CODE, CGEventFlags::empty()),
+            None
+        );
+    }
+
+    #[test]
+    fn repeated_key_down_and_unmatched_key_up_are_ignored() {
+        let pressed = Mutex::new(HashMap::new());
+
+        assert!(begin_key_press(&pressed, MACOS_F16_KEY_CODE));
+        assert!(!begin_key_press(&pressed, MACOS_F16_KEY_CODE));
+        assert!(finish_key_press(&pressed, MACOS_F16_KEY_CODE).is_some());
+        assert_eq!(finish_key_press(&pressed, MACOS_F16_KEY_CODE), None);
     }
 
     #[test]

@@ -62,6 +62,7 @@ cd apps/desktop
 npm run lint
 npm run typecheck
 npm run format:check
+npm test
 cd src-tauri
 cargo fmt --all -- --check
 cargo clippy --all-targets --locked -- -D warnings
