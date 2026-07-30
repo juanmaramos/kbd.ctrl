@@ -88,16 +88,10 @@ The release workflow:
 
 ## Homebrew tap
 
-Create `juanmaramos/homebrew-tap` once:
-
-```sh
-gh repo create juanmaramos/homebrew-tap \
-  --public \
-  --description "Homebrew casks for Juanma Ramos projects"
-```
-
+The public tap lives at
+[`juanmaramos/homebrew-tap`](https://github.com/juanmaramos/homebrew-tap).
 After a successful release, copy its generated `kbd-ctrl.rb` asset to
-`Casks/kbd-ctrl.rb` in that repository. Then users can install with:
+`Casks/kbd-ctrl.rb` in that repository. Users can then install with:
 
 ```sh
 brew install --cask juanmaramos/tap/kbd-ctrl

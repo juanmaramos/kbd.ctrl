@@ -39,17 +39,14 @@ their internal firmware can change without notice.
 
 ## Install
 
-The first signed release will be available from
-[GitHub Releases](https://github.com/juanmaramos/kbd.ctrl/releases).
+Download the signed, notarized universal DMG from the
+[latest GitHub release](https://github.com/juanmaramos/kbd.ctrl/releases/latest).
 
-Homebrew installation will use the same notarized release artifact:
+Homebrew installs the same notarized release artifact:
 
 ```sh
 brew install --cask juanmaramos/tap/kbd-ctrl
 ```
-
-Until the first release is published, build the app from source using the
-development instructions below.
 
 ## First setup
 
