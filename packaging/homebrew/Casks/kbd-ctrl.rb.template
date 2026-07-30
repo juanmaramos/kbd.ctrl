@@ -12,7 +12,7 @@ cask "kbd-ctrl" do
     strategy :github_latest
   end
 
-  depends_on macos: :high_sierra
+  depends_on macos: :sonoma
 
   app "kbd.ctrl.app"
 
