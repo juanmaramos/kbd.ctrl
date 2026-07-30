@@ -19,6 +19,7 @@ pub struct OnboardingState {
     completed: bool,
     dismissed: bool,
     hardware_configured: bool,
+    lighting_configured: bool,
     codex_configured: bool,
 }
 
@@ -132,6 +133,24 @@ mod tests {
         assert!(!preferences.onboarding.completed);
         assert!(!preferences.onboarding.dismissed);
         assert!(!preferences.onboarding.hardware_configured);
+        assert!(!preferences.onboarding.lighting_configured);
         assert!(!preferences.onboarding.codex_configured);
+    }
+
+    #[test]
+    fn existing_installations_require_the_new_lighting_initialization() {
+        let preferences: StoredPreferences = serde_json::from_str(
+            r#"{
+                "onboarding": {
+                    "completed": true,
+                    "hardwareConfigured": true,
+                    "codexConfigured": true
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(preferences.onboarding.hardware_configured);
+        assert!(!preferences.onboarding.lighting_configured);
     }
 }

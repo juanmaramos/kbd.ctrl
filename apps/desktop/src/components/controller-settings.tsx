@@ -45,11 +45,13 @@ import {
 const roleLabels = ["Speak", "Cancel", "Confirm"]
 
 type ControllerSettingsProps = {
+  lightingConfigured: boolean
   onRunSetup: () => void
   usbServiceAvailable: boolean
 }
 
 export function ControllerSettings({
+  lightingConfigured,
   onRunSetup,
   usbServiceAvailable,
 }: ControllerSettingsProps) {
@@ -60,6 +62,7 @@ export function ControllerSettings({
       completed: false,
       dismissed: false,
       hardwareConfigured: false,
+      lightingConfigured: false,
       codexConfigured: false,
     },
   })
@@ -143,7 +146,7 @@ export function ControllerSettings({
     return () => {
       cancelled = true
     }
-  }, [usbServiceAvailable])
+  }, [lightingConfigured, usbServiceAvailable])
 
   const setDockIcon = useCallback(async (visible: boolean) => {
     setIsSavingPreference(true)

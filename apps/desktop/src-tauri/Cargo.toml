@@ -1,6 +1,6 @@
 [package]
 name = "kbd-ctrl"
-version = "0.1.0"
+version = "0.1.1"
 description = "Open configuration and control software for programmable HID keypads"
 authors = ["Juanma Ramos"]
 license = "MIT"

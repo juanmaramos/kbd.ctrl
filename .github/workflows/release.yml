@@ -54,6 +54,7 @@ jobs:
           npm run typecheck
           npm run lint
           npm run format:check
+          npm test
           cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
           cargo clippy \
             --manifest-path src-tauri/Cargo.toml \
@@ -178,10 +179,56 @@ jobs:
             exit 1
           fi
 
-          codesign --verify --deep --strict --verbose=2 "${app_path}"
+          codesign --verify \
+            --all-architectures \
+            --deep \
+            --strict \
+            --verbose=2 \
+            "${app_path}"
           spctl --assess --type execute --verbose=2 "${app_path}"
           xcrun stapler validate "${app_path}"
           xcrun stapler validate "${dmg_path}"
+
+          mount_dir="${RUNNER_TEMP}/kbd-ctrl-release-mount"
+          mkdir -p "${mount_dir}"
+          mount_output="$(
+            hdiutil attach \
+              -readonly \
+              -nobrowse \
+              -mountpoint "${mount_dir}" \
+              "${dmg_path}"
+          )"
+          mounted_device="$(
+            printf '%s\n' "${mount_output}" |
+              awk -v mount="${mount_dir}" '$NF == mount { print $1 }'
+          )"
+          if [[ -z "${mounted_device}" ]]; then
+            echo "::error::Could not identify the mounted release device"
+            exit 1
+          fi
+
+          packaged_app="${mount_dir}/kbd.ctrl.app"
+          cleanup_mount() {
+            hdiutil detach "${mounted_device}" || true
+            rmdir "${mount_dir}" || true
+          }
+          trap cleanup_mount EXIT
+
+          if [[ ! -d "${packaged_app}" ]]; then
+            echo "::error::The DMG does not contain kbd.ctrl.app"
+            exit 1
+          fi
+
+          codesign --verify \
+            --all-architectures \
+            --deep \
+            --strict \
+            --verbose=2 \
+            "${packaged_app}"
+          spctl --assess --type execute --verbose=2 "${packaged_app}"
+
+          cleanup_mount
+          trap - EXIT
 
           dmg_filename="$(basename "${dmg_path}")"
           dmg_sha256="$(shasum -a 256 "${dmg_path}" | awk '{print $1}')"

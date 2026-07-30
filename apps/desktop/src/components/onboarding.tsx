@@ -43,8 +43,7 @@ import type {
   OnboardingState,
 } from "@/lib/device"
 import { openCodex } from "@/lib/device"
-
-const controls = ["F13", "F16", "F17", "F18", "F19", "F20"] as const
+import { controllerControlCodes } from "@/lib/hardware-setup"
 
 const steps = [
   {
@@ -88,13 +87,16 @@ type OnboardingProps = {
 }
 
 function nextIncompleteStep(status: DeviceStatus, onboarding: OnboardingState) {
+  const controllerConfigured =
+    onboarding.hardwareConfigured && onboarding.lightingConfigured
+
   if (!status.configurationInterfaceVisible && !onboarding.hardwareConfigured) {
     return 0
   }
   if (!status.inputMonitoringGranted || !status.controlAccessGranted) {
     return 1
   }
-  if (!onboarding.hardwareConfigured) {
+  if (!controllerConfigured) {
     return 2
   }
   if (!onboarding.codexConfigured) {
@@ -152,8 +154,10 @@ export function Onboarding({
   )
   const [setupError, setSetupError] = useState<string | null>(null)
   const [isConfigureDialogOpen, setIsConfigureDialogOpen] = useState(false)
+  const controllerConfigured =
+    onboarding.hardwareConfigured && onboarding.lightingConfigured
   const activeStep =
-    currentStep === 2 && onboarding.hardwareConfigured && !isConfiguring
+    currentStep === 2 && controllerConfigured && !isConfiguring
       ? 3
       : currentStep
 
@@ -161,11 +165,17 @@ export function Onboarding({
     () => [
       status.configurationInterfaceVisible || onboarding.hardwareConfigured,
       status.inputMonitoringGranted && status.controlAccessGranted,
-      onboarding.hardwareConfigured,
+      controllerConfigured,
       onboarding.codexConfigured,
-      testedControls.size === controls.length,
+      testedControls.size === controllerControlCodes.length,
     ],
-    [onboarding, status, testedControls.size]
+    [
+      controllerConfigured,
+      onboarding.codexConfigured,
+      onboarding.hardwareConfigured,
+      status,
+      testedControls.size,
+    ]
   )
   const completedCount = stepComplete.filter(Boolean).length
 
@@ -176,6 +186,7 @@ export function Onboarding({
       await onUpdateState({
         ...onboarding,
         hardwareConfigured: true,
+        lightingConfigured: true,
       })
       setCurrentStep(3)
     } catch (error) {
@@ -403,9 +414,7 @@ export function Onboarding({
                 </Button>
                 <Button
                   disabled={!stepComplete[1]}
-                  onClick={() =>
-                    setCurrentStep(onboarding.hardwareConfigured ? 3 : 2)
-                  }
+                  onClick={() => setCurrentStep(controllerConfigured ? 3 : 2)}
                 >
                   Continue
                   <IconArrowRight data-icon="inline-end" />
@@ -463,7 +472,7 @@ export function Onboarding({
                 )}
               </CardContent>
               <CardFooter className="justify-end border-t">
-                {!onboarding.hardwareConfigured && (
+                {!controllerConfigured && (
                   <AlertDialog
                     open={isConfigureDialogOpen}
                     onOpenChange={setIsConfigureDialogOpen}
@@ -620,7 +629,7 @@ export function Onboarding({
               <CardContent className="space-y-5">
                 <DevicePad event={event} />
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                  {controls.map((control) => (
+                  {controllerControlCodes.map((control) => (
                     <div
                       key={control}
                       className="flex items-center justify-center gap-2 border px-2 py-3 text-xs font-medium"
@@ -637,15 +646,18 @@ export function Onboarding({
                     </div>
                   ))}
                 </div>
-                {testedControls.size < controls.length && (
+                {testedControls.size < controllerControlCodes.length && (
                   <p className="text-center text-xs text-muted-foreground">
-                    {controls.length - testedControls.size} controls left
+                    {controllerControlCodes.length - testedControls.size}{" "}
+                    controls left
                   </p>
                 )}
               </CardContent>
               <CardFooter className="justify-end border-t">
                 <Button
-                  disabled={testedControls.size !== controls.length}
+                  disabled={
+                    testedControls.size !== controllerControlCodes.length
+                  }
                   onClick={() => void onComplete()}
                 >
                   Finish setup

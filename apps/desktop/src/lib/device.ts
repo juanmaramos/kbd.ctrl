@@ -69,6 +69,7 @@ export type OnboardingState = {
   completed: boolean
   dismissed: boolean
   hardwareConfigured: boolean
+  lightingConfigured: boolean
   codexConfigured: boolean
 }
 
@@ -143,6 +144,7 @@ export async function readAppPreferences(): Promise<AppPreferences> {
         completed: false,
         dismissed: false,
         hardwareConfigured: false,
+        lightingConfigured: false,
         codexConfigured: false,
       },
     }
