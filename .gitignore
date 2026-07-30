@@ -1,0 +1,11 @@
+.DS_Store
+.build/
+logs/
+*.log
+.env
+.env.*
+!.env.example
+*.p8
+*.p12
+*.cer
+certificate-base64.txt

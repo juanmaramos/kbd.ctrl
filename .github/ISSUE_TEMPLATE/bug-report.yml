@@ -1,0 +1,64 @@
+name: Bug report
+description: Report a reproducible problem with kbd.ctrl
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach private keys or device backup files.
+
+  - type: input
+    id: version
+    attributes:
+      label: kbd.ctrl version
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: 26.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection
+      options:
+        - USB
+        - Bluetooth
+        - Both
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: hardware
+    attributes:
+      label: Hardware
+      options:
+        - label: The keypad reports USB vendor `0x514c` and product `0x8850`
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include the action, expected result, and actual result.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open…
+        2. Press…
+        3. Observe…
+    validations:
+      required: true

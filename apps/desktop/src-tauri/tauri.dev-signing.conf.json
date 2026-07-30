@@ -1,0 +1,7 @@
+{
+  "productName": "kbd.ctrl Dev",
+  "identifier": "com.rhams.kbdctrl.dev",
+  "bundle": {
+    "targets": ["app"]
+  }
+}

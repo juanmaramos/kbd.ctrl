@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify macOS app
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+        working-directory: apps/desktop/src-tauri
+
+      - name: Lint Rust
+        run: cargo clippy --all-targets --locked -- -D warnings
+        working-directory: apps/desktop/src-tauri
+
+      - name: Test Rust
+        run: cargo test --locked
+        working-directory: apps/desktop/src-tauri
+
+      - name: Verify release metadata
+        working-directory: .
+        run: |
+          package_version="$(node -p "require('./apps/desktop/package.json').version")"
+          app_version="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
+          cargo_version="$(
+            sed -n 's/^version = "\([^"]*\)"/\1/p' \
+              apps/desktop/src-tauri/Cargo.toml |
+              head -n 1
+          )"
+
+          if [[ "${package_version}" != "${app_version}" ||
+                "${package_version}" != "${cargo_version}" ]]; then
+            echo "::error::Release versions do not match"
+            exit 1
+          fi
+
+          cask_path="${RUNNER_TEMP}/kbd-ctrl.rb"
+          ./scripts/render-homebrew-cask.sh \
+            "${app_version}" \
+            0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+            "${cask_path}"
+          ruby -c "${cask_path}"

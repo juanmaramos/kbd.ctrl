@@ -1,0 +1,201 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Sign, notarize, and publish
+    runs-on: macos-15
+    environment: release
+    defaults:
+      run:
+        working-directory: apps/desktop
+    env:
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Set up universal Rust targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Validate release credentials
+        run: |
+          for name in \
+            APPLE_API_ISSUER \
+            APPLE_API_KEY \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_API_KEY_BASE64 \
+            KEYCHAIN_PASSWORD
+          do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing required release secret: ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Match tag to app version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          app_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [[ "${GITHUB_REF_NAME}" != "v${app_version}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match app version v${app_version}"
+            exit 1
+          fi
+
+      - name: Import Developer ID certificate
+        run: |
+          certificate_path="${RUNNER_TEMP}/developer-id.p12"
+          keychain_path="${RUNNER_TEMP}/kbd-ctrl-signing.keychain-db"
+
+          printf '%s' "${APPLE_CERTIFICATE}" | base64 --decode > "${certificate_path}"
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${keychain_path}"
+          security import "${certificate_path}" \
+            -P "${APPLE_CERTIFICATE_PASSWORD}" \
+            -k "${keychain_path}" \
+            -T /usr/bin/codesign
+          security list-keychain -d user -s "${keychain_path}" login.keychain-db
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "${KEYCHAIN_PASSWORD}" \
+            "${keychain_path}"
+
+          signing_identity="$(
+            security find-identity -v -p codesigning "${keychain_path}" |
+              sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' |
+              head -n 1
+          )"
+          if [[ -z "${signing_identity}" ]]; then
+            echo "::error::No Developer ID Application identity was imported"
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=${signing_identity}" >> "${GITHUB_ENV}"
+          echo "KBD_RELEASE_KEYCHAIN=${keychain_path}" >> "${GITHUB_ENV}"
+
+      - name: Prepare App Store Connect key
+        run: |
+          api_key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "${APPLE_API_KEY_BASE64}" | base64 --decode > "${api_key_path}"
+          chmod 600 "${api_key_path}"
+          echo "APPLE_API_KEY_PATH=${api_key_path}" >> "${GITHUB_ENV}"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify source
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run format:check
+          cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+          cargo clippy \
+            --manifest-path src-tauri/Cargo.toml \
+            --all-targets \
+            --locked \
+            -- \
+            -D warnings
+          cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Build, sign, notarize, and staple universal DMG
+        run: npm run tauri -- build --ci --bundles app,dmg --target universal-apple-darwin
+
+      - name: Verify release artifact
+        id: artifact
+        run: |
+          bundle_root="src-tauri/target/universal-apple-darwin/release/bundle"
+          app_path="${bundle_root}/macos/kbd.ctrl.app"
+          dmg_path="$(find "${bundle_root}/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
+
+          if [[ ! -d "${app_path}" || -z "${dmg_path}" ]]; then
+            echo "::error::Expected app or DMG was not produced"
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "${app_path}"
+          spctl --assess --type execute --verbose=2 "${app_path}"
+          xcrun stapler validate "${app_path}"
+          xcrun stapler validate "${dmg_path}"
+
+          shasum -a 256 "${dmg_path}" > "${dmg_path}.sha256"
+          dmg_sha256="$(awk '{print $1}' "${dmg_path}.sha256")"
+          app_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          cask_path="${bundle_root}/dmg/kbd-ctrl.rb"
+          ../../scripts/render-homebrew-cask.sh \
+            "${app_version}" \
+            "${dmg_sha256}" \
+            "${cask_path}"
+          ruby -c "${cask_path}"
+
+          echo "dmg_path=${dmg_path}" >> "${GITHUB_OUTPUT}"
+          echo "checksum_path=${dmg_path}.sha256" >> "${GITHUB_OUTPUT}"
+          echo "cask_path=${cask_path}" >> "${GITHUB_OUTPUT}"
+
+      - name: Preserve workflow-dispatch artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v6
+        with:
+          name: kbd-ctrl-${{ github.sha }}
+          path: |
+            apps/desktop/${{ steps.artifact.outputs.dmg_path }}
+            apps/desktop/${{ steps.artifact.outputs.checksum_path }}
+            apps/desktop/${{ steps.artifact.outputs.cask_path }}
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DMG_PATH: ${{ steps.artifact.outputs.dmg_path }}
+          CHECKSUM_PATH: ${{ steps.artifact.outputs.checksum_path }}
+          CASK_PATH: ${{ steps.artifact.outputs.cask_path }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "${DMG_PATH}" \
+            "${CHECKSUM_PATH}" \
+            "${CASK_PATH}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "kbd.ctrl ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag
+
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          if [[ -n "${KBD_RELEASE_KEYCHAIN:-}" ]]; then
+            security delete-keychain "${KBD_RELEASE_KEYCHAIN}" || true
+          fi
