@@ -86,6 +86,12 @@ The release workflow:
 5. Verifies Gatekeeper acceptance.
 6. Publishes the DMG, checksum, and rendered Homebrew cask.
 
+The `release` environment accepts only tags matching `v*`. Its Apple
+credentials are scoped to the exact signing steps that need them. Signing runs
+with read-only repository access; a separate job with no Apple credentials
+publishes the verified artifact. All external Actions are pinned to full commit
+SHAs.
+
 ## Homebrew tap
 
 The public tap lives at
