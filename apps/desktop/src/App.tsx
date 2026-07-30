@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import {
   IconActivity,
   IconBluetooth,
+  IconBrandGithub,
+  IconBrandLinkedin,
+  IconBrandX,
   IconDatabaseExport,
   IconDeviceFloppy,
   IconRefresh,
@@ -9,6 +12,7 @@ import {
   IconShieldLock,
   IconUsb,
 } from "@tabler/icons-react"
+import { openUrl } from "@tauri-apps/plugin-opener"
 
 import { ControllerSettings } from "@/components/controller-settings"
 import { DevicePad } from "@/components/device-pad"
@@ -67,6 +71,24 @@ type StatusRowProps = {
 }
 
 export type ConfigurationPhase = "backup" | "mapping" | "lighting" | null
+
+const creatorLinks = [
+  {
+    href: "https://x.com/jmramox",
+    label: "Juan M. Ramos on X",
+    icon: IconBrandX,
+  },
+  {
+    href: "https://www.linkedin.com/in/jmramos/",
+    label: "Juan M. Ramos on LinkedIn",
+    icon: IconBrandLinkedin,
+  },
+  {
+    href: "https://github.com/juanmaramos/kbd.ctrl",
+    label: "kbd.ctrl on GitHub",
+    icon: IconBrandGithub,
+  },
+] as const
 
 function StatusRow({ label, value, state = "ready" }: StatusRowProps) {
   return (
@@ -456,10 +478,17 @@ export function App() {
   const transportLabel = status.configurationInterfaceVisible
     ? "USB service connected"
     : "Wireless controls"
+  const openExternalLink = useCallback(
+    (event: React.MouseEvent<HTMLAnchorElement>) => {
+      event.preventDefault()
+      void openUrl(event.currentTarget.href)
+    },
+    []
+  )
 
   return (
     <TooltipProvider>
-      <main className="min-h-svh bg-background">
+      <main className="flex min-h-svh flex-col bg-background">
         <header className="app-header">
           <div className="flex min-w-0 items-center gap-4">
             <div className="brand-mark" aria-hidden>
@@ -484,7 +513,7 @@ export function App() {
           </Badge>
         </header>
 
-        <div className="app-content">
+        <div className="app-content flex-1">
           {preferences === null ? (
             <div className="flex min-h-[32rem] items-center justify-center">
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -802,6 +831,32 @@ export function App() {
             </>
           )}
         </div>
+        <footer className="app-footer">
+          <p>
+            Made by{" "}
+            <a
+              href="https://x.com/jmramox"
+              onClick={openExternalLink}
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+            >
+              Juan M. Ramos
+            </a>
+          </p>
+          <nav className="flex items-center gap-1" aria-label="Project links">
+            {creatorLinks.map(({ href, label, icon: Icon }) => (
+              <a
+                key={href}
+                href={href}
+                onClick={openExternalLink}
+                className="app-footer__link"
+                aria-label={label}
+                title={label}
+              >
+                <Icon aria-hidden />
+              </a>
+            ))}
+          </nav>
+        </footer>
       </main>
     </TooltipProvider>
   )

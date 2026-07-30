@@ -189,6 +189,7 @@ fn request_control_access() -> bool {
 pub fn run() {
     tauri::Builder::default()
         .manage(InputMonitor::default())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             app.handle().plugin(tauri_plugin_autostart::init(
                 MacosLauncher::LaunchAgent,

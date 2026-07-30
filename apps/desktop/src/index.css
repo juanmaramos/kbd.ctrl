@@ -150,6 +150,18 @@
     @apply mx-auto w-full max-w-[1180px] px-10 py-9;
   }
 
+  .app-footer {
+    @apply mx-auto flex w-full max-w-[1180px] items-center justify-between border-t px-10 py-5 text-xs text-muted-foreground;
+  }
+
+  .app-footer__link {
+    @apply flex size-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none;
+  }
+
+  .app-footer__link svg {
+    @apply size-4;
+  }
+
   .app-hero {
     @apply mb-8 flex items-end justify-between gap-8;
   }

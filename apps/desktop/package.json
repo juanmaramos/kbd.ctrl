@@ -24,6 +24,7 @@
     "@tabler/icons-react": "^3.46.0",
     "@tailwindcss/vite": "^4",
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "react": "^19.2.6",

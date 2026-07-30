@@ -32,6 +32,11 @@ The verified keypad identifies as:
 Products that look identical may use different firmware. kbd.ctrl only writes
 to the exact supported HID interface and verifies every changed report.
 
+The unit used for development came from this
+[three-key, one-dial AliExpress listing](https://es.aliexpress.com/item/1005009473571709.html).
+The link is provided only as a hardware reference; marketplace listings and
+their internal firmware can change without notice.
+
 ## Install
 
 The first signed release will be available from
