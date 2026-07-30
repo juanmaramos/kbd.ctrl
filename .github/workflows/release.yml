@@ -168,8 +168,11 @@ jobs:
           xcrun stapler validate "${app_path}"
           xcrun stapler validate "${dmg_path}"
 
-          shasum -a 256 "${dmg_path}" > "${dmg_path}.sha256"
-          dmg_sha256="$(awk '{print $1}' "${dmg_path}.sha256")"
+          dmg_filename="$(basename "${dmg_path}")"
+          dmg_sha256="$(shasum -a 256 "${dmg_path}" | awk '{print $1}')"
+          printf '%s  %s\n' \
+            "${dmg_sha256}" \
+            "${dmg_filename}" > "${dmg_path}.sha256"
           app_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
           cask_path="${bundle_root}/dmg/kbd-ctrl.rb"
           ../../scripts/render-homebrew-cask.sh \
