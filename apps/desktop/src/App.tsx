@@ -137,8 +137,13 @@ export function App() {
   const [frontmostApplication, setFrontmostApplication] =
     useState<FrontmostApplication>({ name: null, bundleId: null })
   const [isPending, startTransition] = useTransition()
+  const statusRefreshInFlight = useRef(false)
 
   const refreshStatus = useCallback(() => {
+    if (statusRefreshInFlight.current) {
+      return
+    }
+    statusRefreshInFlight.current = true
     startTransition(async () => {
       try {
         setStatus(await readDeviceStatus())
@@ -150,6 +155,8 @@ export function App() {
               ? error.message
               : "Unable to inspect the USB service connection.",
         })
+      } finally {
+        statusRefreshInFlight.current = false
       }
     })
   }, [])

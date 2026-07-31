@@ -143,16 +143,17 @@ struct OpenDevice {
 
 #[tauri::command]
 pub async fn backup_device_configuration(app: AppHandle) -> Result<DeviceBackupSummary, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let _transaction = crate::lock_hid_transaction()?;
-        backup_device_configuration_blocking(app)
+    crate::hid_service::run("device backup", move |api| {
+        backup_device_configuration_blocking(app, api)
     })
     .await
-    .map_err(|error| format!("The backup task could not finish: {error}"))?
 }
 
-fn backup_device_configuration_blocking(app: AppHandle) -> Result<DeviceBackupSummary, String> {
-    let opened = open_configuration_interface()?;
+fn backup_device_configuration_blocking(
+    app: AppHandle,
+    api: &HidApi,
+) -> Result<DeviceBackupSummary, String> {
+    let opened = open_configuration_interface(api)?;
     let info_report = request_device_info(&opened.device)?;
     let info_bytes = info_report[2..5].to_vec();
     let is_compact_device = info_report[4] < 10;
@@ -249,22 +250,21 @@ pub async fn configure_transport_mapping(
     app: AppHandle,
     backup_path: String,
 ) -> Result<MappingSummary, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let _transaction = crate::lock_hid_transaction()?;
-        configure_transport_mapping_blocking(app, backup_path)
+    crate::hid_service::run("mapping update", move |api| {
+        configure_transport_mapping_blocking(app, backup_path, api)
     })
     .await
-    .map_err(|error| format!("The mapping task could not finish: {error}"))?
 }
 
 fn configure_transport_mapping_blocking(
     app: AppHandle,
     backup_path: String,
+    api: &HidApi,
 ) -> Result<MappingSummary, String> {
     let backup = load_verified_backup(&app, &backup_path)?;
     validate_target_device(&backup)?;
 
-    let opened = open_configuration_interface()?;
+    let opened = open_configuration_interface(api)?;
     let live_info = request_device_info(&opened.device)?;
     let backed_up_info = parse_hex(&backup.device_info_report)?;
     if live_info != backed_up_info {
@@ -315,16 +315,14 @@ fn configure_transport_mapping_blocking(
 
 #[tauri::command]
 pub async fn inspect_transport_mapping() -> Result<MappingStatus, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let _transaction = crate::lock_hid_transaction()?;
-        inspect_transport_mapping_blocking()
+    crate::hid_service::run("mapping inspection", |api| {
+        inspect_transport_mapping_blocking(api)
     })
     .await
-    .map_err(|error| format!("The mapping inspection could not finish: {error}"))?
 }
 
-fn inspect_transport_mapping_blocking() -> Result<MappingStatus, String> {
-    let opened = open_configuration_interface()?;
+fn inspect_transport_mapping_blocking(api: &HidApi) -> Result<MappingStatus, String> {
+    let opened = open_configuration_interface(api)?;
     let info_report = request_device_info(&opened.device)?;
     if info_report.len() < 5
         || info_report[2] != EXPECTED_KEY_COUNT
@@ -350,8 +348,7 @@ fn inspect_transport_mapping_blocking() -> Result<MappingStatus, String> {
     })
 }
 
-fn open_configuration_interface() -> Result<OpenDevice, String> {
-    let api = HidApi::new().map_err(|error| format!("HID initialization failed: {error}"))?;
+fn open_configuration_interface(api: &HidApi) -> Result<OpenDevice, String> {
     let info = api
         .device_list()
         .find(|device| {
@@ -364,7 +361,7 @@ fn open_configuration_interface() -> Result<OpenDevice, String> {
 
     let product = info.product_string().map(ToOwned::to_owned);
     let serial_number = info.serial_number().map(ToOwned::to_owned);
-    let device = info.open_device(&api).map_err(|error| {
+    let device = info.open_device(api).map_err(|error| {
         format!(
             "The configuration interface could not be opened. Confirm kbd.ctrl has Input Monitoring access, then reconnect the keypad. HID error: {error}"
         )

@@ -3,13 +3,12 @@ mod app_settings;
 #[cfg(target_os = "macos")]
 mod claude_accessibility;
 mod config_protocol;
+mod hid_service;
 mod input_monitor;
 mod rgb_protocol;
 
-use hidapi::HidApi;
 use input_monitor::InputMonitor;
 use serde::Serialize;
-use std::sync::{Mutex, MutexGuard};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -23,7 +22,6 @@ const TARGET_PRODUCT_ID: u16 = 0x8850;
 const CONFIG_USAGE_PAGE: u16 = 0xff00;
 const CONFIG_USAGE: u16 = 0x0001;
 const TRAY_ICON_RGBA: &[u8] = include_bytes!("../icons/tray-dice.rgba");
-static HID_TRANSACTION: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,12 +36,6 @@ struct DeviceStatus {
     input_monitoring_granted: bool,
     control_access_granted: bool,
     error: Option<String>,
-}
-
-pub(crate) fn lock_hid_transaction() -> Result<MutexGuard<'static, ()>, String> {
-    HID_TRANSACTION
-        .lock()
-        .map_err(|_| "The HID transaction lock is unavailable. Relaunch kbd.ctrl.".to_owned())
 }
 
 #[cfg(target_os = "macos")]
@@ -110,7 +102,7 @@ fn unavailable_device_status(error: String) -> DeviceStatus {
     }
 }
 
-fn get_device_status_blocking() -> DeviceStatus {
+fn get_device_status_blocking(api: &hidapi::HidApi) -> DeviceStatus {
     let mut status = DeviceStatus {
         connected: false,
         product: None,
@@ -122,14 +114,6 @@ fn get_device_status_blocking() -> DeviceStatus {
         input_monitoring_granted: has_input_monitoring_access(),
         control_access_granted: has_control_access(),
         error: None,
-    };
-
-    let api = match HidApi::new() {
-        Ok(api) => api,
-        Err(error) => {
-            status.error = Some(error.to_string());
-            return status;
-        }
     };
 
     for device in api.device_list().filter(|device| {
@@ -153,17 +137,9 @@ fn get_device_status_blocking() -> DeviceStatus {
 
 #[tauri::command]
 async fn get_device_status() -> DeviceStatus {
-    match tauri::async_runtime::spawn_blocking(|| {
-        let _transaction = lock_hid_transaction()?;
-        Ok::<_, String>(get_device_status_blocking())
-    })
-    .await
-    {
-        Ok(Ok(status)) => status,
-        Ok(Err(error)) => unavailable_device_status(error),
-        Err(error) => {
-            unavailable_device_status(format!("Device status task could not finish: {error}"))
-        }
+    match hid_service::run("device status", |api| Ok(get_device_status_blocking(api))).await {
+        Ok(status) => status,
+        Err(error) => unavailable_device_status(error),
     }
 }
 
