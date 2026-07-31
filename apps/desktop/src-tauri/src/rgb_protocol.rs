@@ -88,18 +88,13 @@ impl Default for StoredRgbProfile {
 #[tauri::command]
 pub async fn get_rgb_status(app: AppHandle) -> RgbStatus {
     let fallback_app = app.clone();
-    match tauri::async_runtime::spawn_blocking(move || {
-        let _transaction = crate::lock_hid_transaction()?;
-        Ok::<_, String>(get_rgb_status_blocking(app))
+    match crate::hid_service::run("lighting status", move |api| {
+        Ok(get_rgb_status_blocking(app, api))
     })
     .await
     {
-        Ok(Ok(status)) => status,
-        Ok(Err(error)) => unavailable_rgb_status(&fallback_app, error),
-        Err(error) => unavailable_rgb_status(
-            &fallback_app,
-            format!("The lighting status task could not finish: {error}"),
-        ),
+        Ok(status) => status,
+        Err(error) => unavailable_rgb_status(&fallback_app, error),
     }
 }
 
@@ -116,8 +111,8 @@ fn unavailable_rgb_status(app: &AppHandle, error: String) -> RgbStatus {
     }
 }
 
-fn get_rgb_status_blocking(app: AppHandle) -> RgbStatus {
-    let opened = match open_configuration_interface() {
+fn get_rgb_status_blocking(app: AppHandle, api: &HidApi) -> RgbStatus {
+    let opened = match open_configuration_interface(api) {
         Ok(opened) => opened,
         Err(_) => {
             let stored_profile = read_stored_profile(&app);
@@ -175,18 +170,17 @@ pub async fn apply_rgb_profile(
     profile: String,
     role_colors: Vec<String>,
 ) -> Result<RgbApplySummary, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let _transaction = crate::lock_hid_transaction()?;
-        apply_rgb_profile_blocking(app, profile, role_colors)
+    crate::hid_service::run("lighting update", move |api| {
+        apply_rgb_profile_blocking(app, profile, role_colors, api)
     })
     .await
-    .map_err(|error| format!("The lighting task could not finish: {error}"))?
 }
 
 fn apply_rgb_profile_blocking(
     app: AppHandle,
     profile: String,
     role_colors: Vec<String>,
+    api: &HidApi,
 ) -> Result<RgbApplySummary, String> {
     let mode = match profile.as_str() {
         "reactive" => LED_MODE_REACTIVE,
@@ -195,7 +189,7 @@ fn apply_rgb_profile_blocking(
     };
     let role_colors = parse_role_colors(&role_colors)?;
 
-    let opened = open_configuration_interface()?;
+    let opened = open_configuration_interface(api)?;
     let original_layers = read_rgb_layers(&opened.device)?;
     let backup_path = save_rgb_backup(&app, opened.serial_number, &original_layers)?;
 
@@ -289,8 +283,7 @@ fn rollback_error(
     }
 }
 
-fn open_configuration_interface() -> Result<OpenDevice, String> {
-    let api = HidApi::new().map_err(|error| format!("HID initialization failed: {error}"))?;
+fn open_configuration_interface(api: &HidApi) -> Result<OpenDevice, String> {
     let info = api
         .device_list()
         .find(|device| {
@@ -305,7 +298,7 @@ fn open_configuration_interface() -> Result<OpenDevice, String> {
 
     let serial_number = info.serial_number().map(ToOwned::to_owned);
     let device = info
-        .open_device(&api)
+        .open_device(api)
         .map_err(|error| format!("The RGB service connection could not be opened: {error}"))?;
 
     Ok(OpenDevice {
